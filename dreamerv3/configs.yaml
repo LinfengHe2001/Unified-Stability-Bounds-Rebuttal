@@ -116,8 +116,6 @@ defaults:
     repval_grad: True
     report: True
     report_gradnorms: False
-    report: True
-    report_gradnorms: False
     # ---- Symmetry augmentation (LEE-intervention experiment) ----
     symmetry_aug:
       enabled: False        # baseline=False；+Aug 实验用 CLI 覆盖为 True
