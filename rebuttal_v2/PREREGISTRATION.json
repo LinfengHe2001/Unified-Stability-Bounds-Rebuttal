@@ -1,0 +1,90 @@
+{
+  "_note": "Fill the TODO fields, commit this file (git commit or email it to the advisor with a timestamp) BEFORE running audit_v2.py or analysis_v2.py. Do not edit after results are seen. Any later change must be reported as a deviation.",
+  "version": "v2-2026-10-26",
+  "eval_set": {
+    "path": "TODO/shared_eval_set_info.npz",
+    "source": "collect_crafter_with_info.py, random policy, seed 42, 5000 frames",
+    "n_frames": 5000
+  },
+  "latent_definition": {
+    "primary": "posterior class probabilities p(z|x) of the 32x64 categorical latent (softmax of obslogit with unimix 0.01), from one observe step from the initial carry; deterministic",
+    "excluded": "deterministic state h (constant across inputs for a single observe step from the initial carry; verified by deter_std_max)",
+    "paper_definition_kept_for_continuity": "[h ; sampled one-hot], as in spwm_metrics_system.py"
+  },
+  "channels": {
+    "kappa": "kappa_pair = q90/q10 of ||p_i-p_j||_2 / ||x_i-x_j||_2 over 20000 random frame pairs (seed 0)",
+    "tc": "tc_between = 0.5*(sum_g logdet S_gg - logdet S), probabilities, one class dropped per group, ridge 1e-3 (1e-4 and 1e-2 reported as sensitivity)",
+    "lee": "lee_v2 = mean over {rotation +-5 deg, translation +-1 px, scale 1+-0.05} of E||p(T+x) - p(T-x)||_2 / generator step",
+    "rhs": "kappa_n + tc_n + lee_n with unit weights after natural-zero scaling",
+    "secondary": {
+      "kappa_sem": "q90/q10 of ||p_i-p_j|| / d_sem(i,j) over the same 20000 pairs; d_sem = |pos|_1/10 + |inv|_1/5 + fraction of differing cells in the 9x7 local semantic window (weights fixed here)",
+      "kappa_pix_vs_sem": "Spearman rho of kappa_pair vs kappa_sem across all audited checkpoints, run-bootstrap CI",
+      "lee_fit": "residual of a ridge (1e-2) linear map on the top-128 PCA coordinates of p, fitted on half the frames, evaluated on the other half (seed 0)",
+      "alias_sem": "fraction of 10 latent nearest neighbours with a different semantic id",
+      "lee_intervention": "mean lee_v2 (aug) / mean lee_v2 (aug_base) - 1 over steps >= 250k, per seed, with bootstrap CI over seeds"
+    }
+  },
+  "scaling": {
+    "method_key": "natural",
+    "method": "per channel: (v - z_c) / median_cal(v - z_c), natural zero z_c = 1 for kappa (ratio >= 1), 0 for TC, LEE and baselines; medians from the calibration set only",
+    "lower_clip": 0.0,
+    "upper_clip": null,
+    "_why_not_minmax": "min-max (the paper's choice) maps the healthiest calibration checkpoint to RHS = 0; with J* taken over all runs its gap is positive, so beta* becomes infinite. Min-max is reported only as a sensitivity analysis (--minmax_sensitivity).",
+    "_why_no_upper_clip": "clipping at 1 would hide large defect values on test runs and make the test unable to fail"
+  },
+  "return": {
+    "source": "scores.jsonl, key episode/score (training-policy episodes)",
+    "window_steps": 25000,
+    "statistic": "mean of all episodes ending within +-window of the checkpoint step; n and SEM reported",
+    "J_star": "max J over ALL runs and checkpoints in the analysis set",
+    "gap_norm": "(J_star - J) / (J_star - J_min_all)",
+    "_note_J_star": "J* uses returns of test runs by design (2q75 asked for regret to the best observed run); the rule is fixed here, not tuned"
+  },
+  "calibration": {
+    "run": "TODO name of the paper's main run",
+    "steps": [
+      50000,
+      500000
+    ],
+    "beta": [
+      "beta_star (max ratio)",
+      "beta_90 (90th percentile of ratio)"
+    ],
+    "frozen_after": true
+  },
+  "test_sets": {
+    "T1_same_run_late": "all checkpoints of the main run with step > 500000 (report every one, not only 3.5M)",
+    "T2_cross_run": "all checkpoints of the 6 augmentation-experiment runs (3 baseline + 3 aug seeds)",
+    "T3_tc_sweep": "all checkpoints of the TC-sweep runs IF their logdirs exist; otherwise reported as unavailable",
+    "T4_latent_mask": "late main-run checkpoint with k in {0,4,8,16,24} categorical groups clamped at inference (optional)"
+  },
+  "failure_labels": {
+    "absolute": "gap_norm > 0.25",
+    "step_matched": "J below (mean - 2 SD) of healthy baseline seeds at the same step; SD across >= 3 baseline seeds"
+  },
+  "metrics": {
+    "coverage": "fraction with beta*RHS >= gap_norm, per run and per test set",
+    "tightness": "median and IQR of beta*RHS/gap_norm for gap_norm > 0.05",
+    "auroc_direction": "higher RHS => failure (never flipped after seeing data)",
+    "auroc_variants": [
+      "pooled",
+      "step-stratified (pairs compared only within the same step)"
+    ],
+    "ci": "2000 bootstrap resamples of runs",
+    "conformal": "split-conformal over seeds of the SAME configuration (aug_base runs, calibration run excluded): score_r = max_t gap/RHS; beta_alpha = ceil((n+1)(1-alpha))-th smallest score; valid only for alpha >= 1/(n+1); says nothing about other configurations or failing runs",
+    "ablation": "remove one channel, REFIT beta* on the calibration set, then test (fixed-beta ablation is not reported)"
+  },
+  "lead_lag": {
+    "only_if": "T3 exists",
+    "t_drop": "first step where J < baseline mean - 1 SD for 3 consecutive checkpoints",
+    "t_alarm": "first step where channel deviates > 2 SD from baseline mean (either direction; direction recorded)",
+    "false_alarm_rate": "same rule applied to each held-out healthy baseline seed against the remaining seeds",
+    "note": "a TC alarm in a TC-penalty run is caused by the penalty itself and is not counted as diagnostic evidence"
+  },
+  "baselines": [
+    "one_step_kl (posterior vs prior, deterministic carry)",
+    "recon_mse (mode latent)",
+    "reward_mae (mode latent)",
+    "paper one_step_mse (sampled, for continuity)"
+  ]
+}
